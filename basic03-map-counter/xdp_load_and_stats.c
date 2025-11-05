@@ -97,7 +97,7 @@ struct record {
 };
 
 struct stats_record {
-	struct record stats[1]; /* Assignment#2: Hint */
+	struct record stats[XDP_ACTION_MAX]; /* Assignment#2: Hint */
 };
 
 static double calc_period(struct record *r, struct record *p)
@@ -119,24 +119,26 @@ static void stats_print(struct stats_record *stats_rec,
 	double period;
 	__u64 packets;
 	double pps; /* packets per sec */
-
+	int counter;
 	/* Assignment#2: Print other XDP actions stats  */
+	for(counter = 0; counter < XDP_ACTION_MAX; counter++)
 	{
-		char *fmt = "%-12s %'11lld pkts (%'10.0f pps)"
-			//" %'11lld Kbytes (%'6.0f Mbits/s)"
+		char *fmt = "xdp_stats_map[%d] %-12s %'11lld pkts (%'10.0f pps)"
+			" %'11lld Kbytes (%'6.0f Mbits/s)"
 			" period:%f\n";
-		const char *action = action2str(XDP_PASS);
-		rec  = &stats_rec->stats[0];
-		prev = &stats_prev->stats[0];
+		const char *action = action2str(counter);
+		rec  = &stats_rec->stats[counter];
+		prev = &stats_prev->stats[counter];
 
 		period = calc_period(rec, prev);
-		if (period == 0)
-		       return;
+		if (period < 0.01)
+			return;
 
 		packets = rec->total.rx_packets - prev->total.rx_packets;
 		pps     = packets / period;
+		double mbits = (rec->total.rx_bytes - prev->total.rx_bytes)/1024/1024.0;
 
-		printf(fmt, action, rec->total.rx_packets, pps, period);
+		printf(fmt, counter, action, rec->total.rx_packets, pps, rec->total.rx_bytes/1024, mbits, period);
 	}
 }
 
@@ -181,6 +183,7 @@ static bool map_collect(int fd, __u32 map_type, __u32 key, struct record *rec)
 
 	/* Assignment#1: Add byte counters */
 	rec->total.rx_packets = value.rx_packets;
+	rec->total.rx_bytes = value.rx_bytes;
 	return true;
 }
 
@@ -188,9 +191,12 @@ static void stats_collect(int map_fd, __u32 map_type,
 			  struct stats_record *stats_rec)
 {
 	/* Assignment#2: Collect other XDP actions stats  */
-	__u32 key = XDP_PASS;
 
-	map_collect(map_fd, map_type, key, &stats_rec->stats[0]);
+	map_collect(map_fd, map_type, XDP_PASS, &stats_rec->stats[XDP_PASS]);
+	map_collect(map_fd, map_type, XDP_DROP, &stats_rec->stats[XDP_DROP]);
+	map_collect(map_fd, map_type, XDP_ABORTED, &stats_rec->stats[XDP_ABORTED]);
+	map_collect(map_fd, map_type, XDP_TX, &stats_rec->stats[XDP_TX]);
+	map_collect(map_fd, map_type, XDP_REDIRECT, &stats_rec->stats[XDP_REDIRECT]);
 }
 
 static void stats_poll(int map_fd, __u32 map_type, int interval)
